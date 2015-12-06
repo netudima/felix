@@ -638,9 +638,9 @@ public class BundleRevisionImpl implements BundleRevision, Resource
 
         try
         {
-            return m_secureAction.createURL(null,
-                FelixConstants.BUNDLE_URL_PROTOCOL + "://" +
-                m_id + ":" + port + path,
+            return m_secureAction.createURL(
+                FelixConstants.BUNDLE_URL_PROTOCOL,
+                m_id, port, path,
                 ((BundleImpl) getBundle()).getFramework().getBundleStreamHandler());
         }
         catch (MalformedURLException ex)

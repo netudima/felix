@@ -146,7 +146,33 @@ public class JarContent implements Content
             {
                 return null;
             }
+            // try to avoid usage of ByteArrayOutputStream with temporary arrays creation
+            long expectedSize = ze.getSize();
+            int byteCheck = -2;
+            byte[] bufExactSize = null;
+            int readNFirstTime = 0;
+            if (expectedSize > 0) {
+                bufExactSize = new byte[(int) expectedSize];
+                int n;
+                while (readNFirstTime < expectedSize &&
+                        (n = is.read(bufExactSize, readNFirstTime, bufExactSize.length - readNFirstTime)) >= 0) {
+                    readNFirstTime += n;
+                }
+                if (readNFirstTime == expectedSize) {
+                    byteCheck = is.read();
+                    if (byteCheck < 0) {
+                        return bufExactSize;
+                    }
+                }
+            }
+
             baos = new ByteArrayOutputStream(BUFSIZE);
+            if (bufExactSize != null) {
+                baos.write(bufExactSize, 0, readNFirstTime);
+                if (byteCheck >= 0) {
+                    baos.write(byteCheck);
+                }
+            }
             byte[] buf = new byte[BUFSIZE];
             int n = 0;
             while ((n = is.read(buf, 0, buf.length)) >= 0)
@@ -154,7 +180,6 @@ public class JarContent implements Content
                 baos.write(buf, 0, n);
             }
             return baos.toByteArray();
-
         }
         catch (Exception ex)
         {

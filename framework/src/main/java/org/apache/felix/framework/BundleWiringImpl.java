@@ -1093,9 +1093,9 @@ public class BundleWiringImpl implements BundleWiring
 
         try
         {
-            return BundleRevisionImpl.getSecureAction().createURL(null,
-                FelixConstants.BUNDLE_URL_PROTOCOL + "://" +
-                m_revision.getId() + ":" + port + path,
+            return BundleRevisionImpl.getSecureAction().createURL(
+                FelixConstants.BUNDLE_URL_PROTOCOL,
+                m_revision.getId(), port, path,
                 ((BundleImpl) getBundle()).getFramework().getBundleStreamHandler());
         }
         catch (MalformedURLException ex)
@@ -1938,6 +1938,7 @@ public class BundleWiringImpl implements BundleWiring
 
     public static class BundleClassLoader extends SecureClassLoader implements BundleReference
     {
+        private static final Object[] EMPTY_PACKAGE_DEFINITION = new Object[]{null, null, null, null, null, null};
          static
          {
              try
@@ -1966,6 +1967,7 @@ public class BundleWiringImpl implements BundleWiring
         private final Map<String, Thread> m_classLocks = new HashMap<String, Thread>();
         private final BundleWiringImpl m_wiring;
         private final Logger m_logger;
+        private final Object[] m_packageDefinition;
 
         public BundleClassLoader(BundleWiringImpl wiring, ClassLoader parent, Logger logger)
         {
@@ -1980,6 +1982,7 @@ public class BundleWiringImpl implements BundleWiring
             }
             m_wiring = wiring;
             m_logger = logger;
+            m_packageDefinition = preparePackageDefinition(m_wiring);
         }
 
         protected boolean isParallel()
@@ -2099,12 +2102,12 @@ public class BundleWiringImpl implements BundleWiring
                     Set<ServiceReference<WeavingHook>> hooks =
                         felix.getHookRegistry().getHooks(WeavingHook.class);
 
-                    Set<ServiceReference<WovenClassListener>> wovenClassListeners =
-                        felix.getHookRegistry().getHooks(WovenClassListener.class);
+                    Set<ServiceReference<WovenClassListener>> wovenClassListeners = null;
 
                     WovenClassImpl wci = null;
                     if (!hooks.isEmpty())
                     {
+                        wovenClassListeners = felix.getHookRegistry().getHooks(WovenClassListener.class);
                         // Create woven class to be used for hooks.
                         wci = new WovenClassImpl(name, m_wiring, bytes);
                         try
@@ -2128,7 +2131,8 @@ public class BundleWiringImpl implements BundleWiring
                     synchronized (lock)
                     {
                         Thread me = Thread.currentThread();
-                        while (m_classLocks.containsKey(name) && (m_classLocks.get(name) != me))
+                        Thread loadingThread;
+                        while ((loadingThread = m_classLocks.get(name)) != null && loadingThread != me)
                         {
                             try
                             {
@@ -2474,26 +2478,32 @@ public class BundleWiringImpl implements BundleWiring
             }
         }
 
+        private Object[] preparePackageDefinition(BundleWiringImpl bundleWiring) {
+            if (bundleWiring.m_revision != null) {
+                Map headers = bundleWiring.m_revision.getHeaders();
+                String spectitle = (String) headers.get("Specification-Title");
+                String specversion = (String) headers.get("Specification-Version");
+                String specvendor = (String) headers.get("Specification-Vendor");
+                String impltitle = (String) headers.get("Implementation-Title");
+                String implversion = (String) headers.get("Implementation-Version");
+                String implvendor = (String) headers.get("Implementation-Vendor");
+                if ((spectitle != null)
+                        || (specversion != null)
+                        || (specvendor != null)
+                        || (impltitle != null)
+                        || (implversion != null)
+                        || (implvendor != null)) {
+                    return new Object[]{
+                            spectitle, specversion, specvendor, impltitle, implversion, implvendor
+                    };
+                }
+            }
+            return EMPTY_PACKAGE_DEFINITION;
+        }
+
         private Object[] definePackage(String pkgName)
         {
-            String spectitle = (String) m_wiring.m_revision.getHeaders().get("Specification-Title");
-            String specversion = (String) m_wiring.m_revision.getHeaders().get("Specification-Version");
-            String specvendor = (String) m_wiring.m_revision.getHeaders().get("Specification-Vendor");
-            String impltitle = (String) m_wiring.m_revision.getHeaders().get("Implementation-Title");
-            String implversion = (String) m_wiring.m_revision.getHeaders().get("Implementation-Version");
-            String implvendor = (String) m_wiring.m_revision.getHeaders().get("Implementation-Vendor");
-            if ((spectitle != null)
-                || (specversion != null)
-                || (specvendor != null)
-                || (impltitle != null)
-                || (implversion != null)
-                || (implvendor != null))
-            {
-                return new Object[] {
-                    spectitle, specversion, specvendor, impltitle, implversion, implvendor
-                };
-            }
-            return new Object[] {null, null, null, null, null, null};
+            return m_packageDefinition;
         }
 
         private Class getDexFileClass(JarContent content, String name, ClassLoader loader)
